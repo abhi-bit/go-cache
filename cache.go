@@ -1,20 +1,21 @@
-//Package cache: Go-routine safe, simple LRU cache for storing documents([] bytes)
+//Package cache: Go-routine safe, simple LRU cache for storing documents([] rune)
 package cache
 
 import (
 	"container/list"
 	"sync"
+    "fmt"
 )
 
 //Key - value pairs inside cache
 type cacheValue struct {
 	key   string
-	bytes []byte
+	bytes []rune
 }
 
 //Size of key - value pair. Not counting their metadata
 func (v *cacheValue) size() uint64 {
-	return uint64(len([]byte(v.key)) + len(v.bytes))
+	return uint64(len([]rune(v.key)) + len(v.bytes))
 }
 
 //Base struct for LRU cache
@@ -59,7 +60,7 @@ func (c *Cache) trim() {
 
 //Inserts key and doc([] byte). Doesn't overwrite if key exists
 //Returns LRU cache size at that point
-func (c *Cache) Insert(key string, document []byte) (cacheSize uint64) {
+func (c *Cache) Insert(key string, document []rune) (cacheSize uint64) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -78,7 +79,7 @@ func (c *Cache) Insert(key string, document []byte) (cacheSize uint64) {
 
 //Retrives a key if its present
 //Returns doc and boolean flag to tell if key was there or not
-func (c *Cache) Get(key string) (document []byte, ok bool) {
+func (c *Cache) Get(key string) (document []rune, ok bool) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -117,11 +118,60 @@ func (c *Cache) Delete(key string) {
 }
 
 //Peeks into LRU to spit out key that will get evicted from cache first
-func (c *Cache) Peek() (key string, document []byte, size uint64) {
+func (c *Cache) Peek() (key string, document []rune, size uint64) {
 	elt := c.list.Back()
 	if elt == nil {
 		return
 	}
 	v := elt.Value.(*cacheValue)
 	return v.key, v.bytes, v.size()
+}
+
+//Purges the LRU Cache
+func (c *Cache) PurgeCache() {
+    c.Lock()
+    defer c.Unlock()
+
+    c.list.Init()
+    c.table = make(map[string]*list.Element)
+    c.Size = 0
+}
+
+//Dumps cache related stats
+func (c *Cache) CacheStats() (length, size, capacity uint64){
+    c.Lock()
+    defer c.Unlock()
+
+    //list.Len is O(1)
+    return uint64(c.list.Len()), c.Size, c.capacity
+}
+
+//Dump JSON stats
+func (c *Cache) StatsJSON() string {
+    if c == nil {
+        return "{}"
+    }
+    l, s, capacity := c.CacheStats()
+    return fmt.Sprintf("{\"Length\": %v, \"Size\": %v, \"Capacity\": %v", l, s, capacity )
+}
+
+//Dumps all the keys from cache
+func (c *Cache) Keys() []string {
+    c.Lock()
+    defer c.Unlock()
+
+    keys := make([]string, 0, c.list.Len())
+    for e := c.list.Front(); e != nil; e = e.Next() {
+        keys = append(keys, e.Value.(*cacheValue).key)
+    }
+    return keys
+}
+
+//Change cache capacity
+func (c *Cache) SetCapacity(capacity uint64) {
+    c.Lock()
+    defer c.Unlock()
+
+    c.capacity = capacity
+    c.trim()
 }
